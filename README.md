@@ -12,12 +12,6 @@ Application Received
         │
         ▼
 ┌───────────────────┐
-│  FRAUD GATE       │  ~50ms  Isolation Forest + velocity rules
-│  Isolation Forest │         → BLOCK if fraudulent
-└───────┬───────────┘
-        │ ALLOW
-        ▼
-┌───────────────────┐
 │  STAGE 1          │  ~5ms   No bureau pull — uses application data only
 │  Logistic         │         → DECLINE if clearly high-risk (saves $0.50/call)
 │  Regression       │         → APPROVE/REVIEW → proceed to Stage 2
@@ -36,7 +30,7 @@ Application Received
 │  + SHAP           │         → Adverse action codes for declines
 └───────────────────┘
 
-Total P99: ~670ms  ✅ Well within 2s SLA
+Total P99: ~670ms
 ```
 
 ---
@@ -64,8 +58,6 @@ bnpl_engine/
 ├── models/
 │   ├── stage1_logistic.py      # Logistic Regression pre-qualification
 │   └── stage2_xgboost.py       # XGBoost final decision + SHAP
-├── fraud/
-│   └── isolation_forest.py     # Fraud gate (runs before everything)
 ├── api/
 │   └── app.py                  # FastAPI production endpoint
 ├── data/                       # Trained model files (created after training)
@@ -181,5 +173,3 @@ In `models/stage2_xgboost.py`:
 APPROVE_THRESHOLD = 0.25   # Final: PD < 25% → APPROVED
 MANUAL_REVIEW_THRESHOLD = 0.45  # 25-45% → MANUAL REVIEW
 ```
-
-Adjust these based on your portfolio's risk appetite and observed loss rates.
