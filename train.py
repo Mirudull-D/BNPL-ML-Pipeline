@@ -1,10 +1,9 @@
 """
 Training Script — BNPL Decision Engine
 ────────────────────────────────────────
-Trains all 3 models:
- 
-  2. Stage 1 Logistic Regression (pre-qualification)
-  3. Stage 2 XGBoost (full credit decision)
+Trains both models:
+  1. Stage 1 Logistic Regression (pre-qualification)
+  2. Stage 2 XGBoost (full credit decision)
 
 To train on real data:
   Replace generate_synthetic_data() with your actual dataset loader.
@@ -12,8 +11,8 @@ To train on real data:
   Download: kaggle competitions download -c home-credit-default-risk
 
 Usage:
-  python train.py                        # Train on synthetic data
-  python train.py --dataset home_credit  # Train on Home Credit dataset
+  python train.py                   # Train on synthetic data
+  python train.py --samples 100000  # Train with more samples
 """
 
 import numpy as np
@@ -31,21 +30,13 @@ from models.stage1_logistic import Stage1Model
 from models.stage2_xgboost import Stage2Model
 
 
-
 def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
-    """
-    Generate realistic synthetic credit data for training.
-    Replace this with your real dataset for production use.
-    
-    Label distribution: ~8% default rate (realistic for BNPL)
-    """
     print(f"Generating {n_samples:,} synthetic training samples...")
     rng = np.random.default_rng(42)
-
     n = n_samples
     data = {}
 
-    # ── Applicant ──────────────────────────────────────────────────
+    # Applicant
     data["age"] = rng.integers(18, 72, n)
     data["annual_income"] = np.exp(rng.normal(10.8, 0.6, n)).clip(15000, 500000)
     data["employment_years"] = rng.exponential(4, n).clip(0, 35)
@@ -55,7 +46,7 @@ def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
     )
     data["monthly_debt_obligations"] = data["annual_income"] / 12 * rng.uniform(0.05, 0.6, n)
 
-    # ── Order ──────────────────────────────────────────────────────
+    # Order
     data["order_amount"] = rng.lognormal(5.5, 1.0, n).clip(20, 5000)
     data["merchant_category"] = rng.choice(
         ["grocery", "fashion", "electronics", "luxury", "travel"],
@@ -63,7 +54,7 @@ def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
     )
     data["installment_plan"] = rng.choice([3, 6, 12], n, p=[0.35, 0.45, 0.20])
 
-    # ── Bureau ─────────────────────────────────────────────────────
+    # Bureau
     base_scores = (
         600
         + (data["annual_income"] - 50000) / 5000
@@ -71,7 +62,6 @@ def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
         + rng.normal(0, 40, n)
     ).clip(300, 850)
     data["credit_score"] = base_scores
-
     data["credit_utilization"] = rng.beta(2, 5, n).clip(0.01, 0.99)
     data["num_delinquencies_2yr"] = rng.choice([0, 1, 2, 3, 4], n, p=[0.72, 0.14, 0.08, 0.04, 0.02])
     data["num_hard_inquiries_6mo"] = rng.choice([0, 1, 2, 3, 4, 5], n, p=[0.40, 0.30, 0.15, 0.08, 0.05, 0.02])
@@ -81,7 +71,7 @@ def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
     data["total_revolving_balance"] = data["total_credit_limit"] * data["credit_utilization"]
     data["num_public_records"] = rng.choice([0, 1, 2, 3], n, p=[0.88, 0.08, 0.03, 0.01])
 
-    # ── Behavioral ─────────────────────────────────────────────────
+    # Behavioral
     data["device_age_days"] = rng.exponential(365, n).clip(0, 3650)
     data["session_duration_seconds"] = rng.lognormal(4.2, 0.8, n).clip(5, 600)
     data["email_domain_age_days"] = rng.exponential(730, n).clip(0, 7300)
@@ -94,22 +84,20 @@ def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
 
     df = pd.DataFrame(data)
 
-    # ── Generate Labels (default = 1) ──────────────────────────────
-    # Logistic model for realistic default probability
+    # Generate Labels
     log_odds = (
-        -6.0                                                  # base intercept
-        + (df["num_delinquencies_2yr"] * 0.8)               # biggest risk factor
-        + (df["credit_utilization"] * 2.5)                  # high utilization
-        + (df["num_hard_inquiries_6mo"] * 0.3)              # many inquiries
-        + (df["num_public_records"] * 1.2)                  # bankruptcies etc
-        - ((df["credit_score"] - 600) / 100)                # good score reduces risk
-        - (df["employment_years"] * 0.05)                   # stability reduces risk
-        - (df["oldest_account_years"] * 0.04)               # history reduces risk
-        + (df["monthly_debt_obligations"] / (df["annual_income"] / 12) * 1.5)  # DTI
-        + (df["previous_bnpl_defaults"] * 1.5)              # prior defaults
-        + rng.normal(0, 0.5, n)                             # noise
+        -6.0
+        + (df["num_delinquencies_2yr"] * 0.8)
+        + (df["credit_utilization"] * 2.5)
+        + (df["num_hard_inquiries_6mo"] * 0.3)
+        + (df["num_public_records"] * 1.2)
+        - ((df["credit_score"] - 600) / 100)
+        - (df["employment_years"] * 0.05)
+        - (df["oldest_account_years"] * 0.04)
+        + (df["monthly_debt_obligations"] / (df["annual_income"] / 12) * 1.5)
+        + (df["previous_bnpl_defaults"] * 1.5)
+        + rng.normal(0, 0.5, n)
     )
-
     prob_default = 1 / (1 + np.exp(-log_odds))
     df["default"] = (rng.uniform(0, 1, n) < prob_default).astype(int)
 
@@ -119,10 +107,8 @@ def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
 
 
 def build_feature_matrices(df: pd.DataFrame):
-    """Convert raw dataframe to feature matrices for Stage 1 and Stage 2"""
     stage1_ext = Stage1FeatureExtractor()
     stage2_ext = Stage2FeatureExtractor()
-
     stage1_rows = []
     stage2_rows = []
 
@@ -164,9 +150,7 @@ def build_feature_matrices(df: pd.DataFrame):
 
 
 def train_all_models(n_samples: int = 50000):
-    """Train all 3 models in the correct order"""
-
-    # 1. Generate / load data
+    # 1. Generate data
     df = generate_synthetic_data(n_samples)
 
     # 2. Extract features
@@ -174,7 +158,7 @@ def train_all_models(n_samples: int = 50000):
     X_s1 = s1_df.values.astype(np.float32)
     X_s2 = s2_df.values.astype(np.float32)
 
-    # 3. Train/val split (80/20, stratified by default label)
+    # 3. Train/val split
     idx = np.arange(len(labels))
     tr_idx, val_idx = train_test_split(idx, test_size=0.2, stratify=labels, random_state=42)
 
@@ -182,50 +166,42 @@ def train_all_models(n_samples: int = 50000):
     X_s2_train, X_s2_val = X_s2[tr_idx], X_s2[val_idx]
     y_train, y_val = labels[tr_idx], labels[val_idx]
 
-    # 4. Train Fraud Detector on non-default samples (it learns "normal")
-    print("\n" + "="*60)
-    
-
-    # 5. Train Stage 1 — Logistic Regression
-    print()
+    # 4. Train Stage 1 — Logistic Regression
+    print("=" * 60)
     stage1 = Stage1Model()
     s1_auc = stage1.train(X_s1_train, y_train, X_s1_val, y_val, s1_features)
 
-    # 6. Train Stage 2 — XGBoost with monotone constraints
+    # 5. Train Stage 2 — XGBoost
     print()
     stage2 = Stage2Model()
 
-    # Define monotone constraints for regulatory compliance
-    # +1 = higher value → more risk (monotone increasing)
-    # -1 = higher value → less risk (monotone decreasing)
     monotone_constraints = {
-        "credit_score_normalized":    -1,  # higher score = less risk
-        "num_delinquencies_2yr":      +1,  # more delinquencies = more risk
-        "credit_utilization":         +1,  # higher utilization = more risk
-        "num_hard_inquiries_6mo":     +1,  # more inquiries = more risk
-        "num_public_records":         +1,  # more records = more risk
-        "debt_to_income_ratio":       +1,  # higher DTI = more risk
-        "payment_history_score":      -1,  # better payment history = less risk
-        "oldest_account_years":       -1,  # longer history = less risk
-        "employment_years":           -1,  # more experience = less risk
+        "credit_score_normalized":  -1,
+        "num_delinquencies_2yr":    +1,
+        "credit_utilization":       +1,
+        "num_hard_inquiries_6mo":   +1,
+        "num_public_records":       +1,
+        "debt_to_income_ratio":     +1,
+        "payment_history_score":    -1,
+        "oldest_account_years":     -1,
+        "employment_years":         -1,
     }
 
     s2_auc = stage2.train(
         X_s2_train, y_train, X_s2_val, y_val, s2_features, monotone_constraints
     )
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("TRAINING COMPLETE")
-    print("="*60)
-    print(f"Stage 1 AUC: {s1_auc:.4f}")
-    print(f"Stage 2 AUC: {s2_auc:.4f}")
-    print("\nAll models saved to bnpl_engine/data/")
+    print("=" * 60)
+    print(f"Stage 1 AUC : {s1_auc:.4f}")
+    print(f"Stage 2 AUC : {s2_auc:.4f}")
+    print("\nModels saved to data/")
     print("Run demo.py to test the engine.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train BNPL Decision Engine")
-    parser.add_argument("--samples", type=int, default=50000, help="Training samples to generate")
+    parser.add_argument("--samples", type=int, default=50000, help="Number of training samples")
     args = parser.parse_args()
-
     train_all_models(n_samples=args.samples)
