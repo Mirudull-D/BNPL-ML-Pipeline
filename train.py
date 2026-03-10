@@ -30,79 +30,86 @@ from models.stage1_logistic import Stage1Model
 from models.stage2_xgboost import Stage2Model
 
 
-def generate_synthetic_data(n_samples: int = 50000) -> pd.DataFrame:
-    print(f"Generating {n_samples:,} synthetic training samples...")
+def load_kaggle_data(n_samples: int = 50000) -> pd.DataFrame:
+    csv_path = os.path.join(os.path.dirname(__file__), "home-credit-default-risk", "application_train.csv")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Kaggle dataset not found at {csv_path}. Please download it first.")
+
+    print(f"Loading {n_samples:,} samples from Kaggle dataset ({csv_path})...")
+    
+    # We only read the rows we need to save memory 
+    # (or sample from the whole file if n_samples < 307511)
+    df_raw = pd.read_csv(csv_path, nrows=n_samples)
+    
     rng = np.random.default_rng(42)
-    n = n_samples
+    n = len(df_raw)
     data = {}
 
-    # Applicant
-    data["age"] = rng.integers(18, 72, n)
-    data["annual_income"] = np.exp(rng.normal(10.8, 0.6, n)).clip(15000, 500000)
-    data["employment_years"] = rng.exponential(4, n).clip(0, 35)
-    data["employment_status"] = rng.choice(
-        ["employed", "self_employed", "student", "unemployed"],
-        n, p=[0.68, 0.15, 0.10, 0.07]
-    )
-    data["monthly_debt_obligations"] = data["annual_income"] / 12 * rng.uniform(0.05, 0.6, n)
+    # --- Applicant Identity & Financials (Real Kaggle Data) ---
+    data["applicant_id"] = df_raw["SK_ID_CURR"]
+    data["age"] = (df_raw["DAYS_BIRTH"] / -365).astype(int)
+    data["annual_income"] = df_raw["AMT_INCOME_TOTAL"]
+    
+    # Handle the '365243' DAYS_EMPLOYED outlier which means unemployed/pensioner
+    days_employed_cleaned = df_raw["DAYS_EMPLOYED"].replace(365243, 0)
+    data["employment_years"] = (days_employed_cleaned / -365).clip(lower=0)
+    
+    # Map employment status
+    income_map = {
+        "Working": "employed",
+        "Commercial associate": "self_employed",
+        "Pensioner": "unemployed",
+        "State servant": "employed",
+        "Student": "student",
+        "Unemployed": "unemployed",
+        "Businessman": "self_employed",
+        "Maternity leave": "unemployed"
+    }
+    data["employment_status"] = df_raw["NAME_INCOME_TYPE"].map(income_map).fillna("employed")
+    
+    # Debt/Loan mapping
+    data["monthly_debt_obligations"] = df_raw["AMT_ANNUITY"].fillna(data["annual_income"] * 0.05)
+    data["order_amount"] = df_raw["AMT_CREDIT"]
 
-    # Order
-    data["order_amount"] = rng.lognormal(5.5, 1.0, n).clip(20, 5000)
-    data["merchant_category"] = rng.choice(
-        ["grocery", "fashion", "electronics", "luxury", "travel"],
-        n, p=[0.15, 0.30, 0.35, 0.10, 0.10]
-    )
-    data["installment_plan"] = rng.choice([3, 6, 12], n, p=[0.35, 0.45, 0.20])
-
-    # Bureau
-    base_scores = (
-        600
-        + (data["annual_income"] - 50000) / 5000
-        + data["employment_years"] * 3
-        + rng.normal(0, 40, n)
-    ).clip(300, 850)
-    data["credit_score"] = base_scores
+    # --- Bureau Data (Partial Real / Partial Synthetic) ---
+    # We create a synthesized credit score based on Kaggle's normalized external sources
+    ext_sources = df_raw[["EXT_SOURCE_1", "EXT_SOURCE_2", "EXT_SOURCE_3"]].fillna(0.5).mean(axis=1)
+    # Ext sources range 0 to 1, where higher is lower risk (usually). Map to 300-850 FICO score.
+    # Note: Kaggle ext_sources are highly correlated with the target
+    data["credit_score"] = (300 + (ext_sources * 550)).clip(300, 850)
+    
+    data["num_hard_inquiries_6mo"] = (df_raw["AMT_REQ_CREDIT_BUREAU_QRT"].fillna(0) + df_raw["AMT_REQ_CREDIT_BUREAU_MON"].fillna(0)).astype(int)
+    
+    # Synthesize remaining Bureau fields based on actual Kaggle anchors
     data["credit_utilization"] = rng.beta(2, 5, n).clip(0.01, 0.99)
     data["num_delinquencies_2yr"] = rng.choice([0, 1, 2, 3, 4], n, p=[0.72, 0.14, 0.08, 0.04, 0.02])
-    data["num_hard_inquiries_6mo"] = rng.choice([0, 1, 2, 3, 4, 5], n, p=[0.40, 0.30, 0.15, 0.08, 0.05, 0.02])
     data["num_open_accounts"] = rng.integers(1, 20, n)
-    data["oldest_account_years"] = rng.exponential(6, n).clip(0.1, 30)
+    data["oldest_account_years"] = data["age"] / 2.0  # Safe heuristic 
     data["total_credit_limit"] = (data["annual_income"] * rng.uniform(0.1, 1.5, n)).clip(500, 100000)
     data["total_revolving_balance"] = data["total_credit_limit"] * data["credit_utilization"]
     data["num_public_records"] = rng.choice([0, 1, 2, 3], n, p=[0.88, 0.08, 0.03, 0.01])
 
-    # Behavioral
+    # --- Order Context & Specific BNPL Anti-Fraud Signals (Synthetic) ---
+    # Because Kaggle is for massive standard loans (mortgages, cars), not small cart checkouts
+    data["merchant_category"] = rng.choice(["grocery", "fashion", "electronics", "luxury", "travel"], n, p=[0.15, 0.30, 0.35, 0.10, 0.10])
+    data["installment_plan"] = rng.choice([3, 6, 12], n, p=[0.35, 0.45, 0.20])
+    
     data["device_age_days"] = rng.exponential(365, n).clip(0, 3650)
     data["session_duration_seconds"] = rng.lognormal(4.2, 0.8, n).clip(5, 600)
     data["email_domain_age_days"] = rng.exponential(730, n).clip(0, 7300)
-    data["previous_bnpl_orders"] = rng.choice([0, 1, 2, 3, 4, 5, 10], n, p=[0.45, 0.20, 0.15, 0.08, 0.06, 0.04, 0.02])
-    data["previous_bnpl_defaults"] = np.where(
-        data["previous_bnpl_orders"] > 0,
-        rng.binomial(data["previous_bnpl_orders"], 0.05),
-        0
-    )
+    data["previous_bnpl_orders"] = rng.choice([0, 1, 2, 3], n, p=[0.50, 0.30, 0.15, 0.05])
+    data["previous_bnpl_defaults"] = np.where(data["previous_bnpl_orders"] > 0, rng.binomial(data["previous_bnpl_orders"], 0.05), 0)
 
     df = pd.DataFrame(data)
+    
+    # Set ID as index
+    df = df.set_index("applicant_id")
 
-    # Generate Labels
-    log_odds = (
-        -6.0
-        + (df["num_delinquencies_2yr"] * 0.8)
-        + (df["credit_utilization"] * 2.5)
-        + (df["num_hard_inquiries_6mo"] * 0.3)
-        + (df["num_public_records"] * 1.2)
-        - ((df["credit_score"] - 600) / 100)
-        - (df["employment_years"] * 0.05)
-        - (df["oldest_account_years"] * 0.04)
-        + (df["monthly_debt_obligations"] / (df["annual_income"] / 12) * 1.5)
-        + (df["previous_bnpl_defaults"] * 1.5)
-        + rng.normal(0, 0.5, n)
-    )
-    prob_default = 1 / (1 + np.exp(-log_odds))
-    df["default"] = (rng.uniform(0, 1, n) < prob_default).astype(int)
+    # The actual Ground Truth label from the Kaggle dataset
+    df["default"] = df_raw["TARGET"].values
 
-    print(f"Default rate: {df['default'].mean():.2%}")
-    print(f"Features: {len(df.columns) - 1}")
+    print(f"Loaded Real Data - Default rate: {df['default'].mean():.2%}")
+    print(f"Features ready for extraction: {len(df.columns) - 1}")
     return df
 
 
@@ -151,7 +158,7 @@ def build_feature_matrices(df: pd.DataFrame):
 
 def train_all_models(n_samples: int = 50000):
     # 1. Generate data
-    df = generate_synthetic_data(n_samples)
+    df = load_kaggle_data(n_samples)
 
     # 2. Extract features
     s1_df, s2_df, labels, s1_features, s2_features = build_feature_matrices(df)

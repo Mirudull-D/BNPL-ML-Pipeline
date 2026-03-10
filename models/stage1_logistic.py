@@ -129,7 +129,7 @@ class Stage1Model:
 
     def _apply_thresholds(self, prob: float) -> Tuple[str, bool]:
         if prob < self.APPROVE_THRESHOLD:
-            return "APPROVE", True     # Low risk → pre-approve, confirm in Stage 2
+            return "APPROVE", False    # Low risk → instant approve, no bureau pull
         elif prob > self.DECLINE_THRESHOLD:
             return "DECLINE", False    # High risk → instant decline
         else:

@@ -108,18 +108,37 @@ class DecisionEngine:
               f"decision={stage1_result['decision']}  "
               f"score={stage1_result['stage1_score']}  ({timings['stage1_ms']}ms)")
 
-        # Hard decline from Stage 1 — no bureau pull needed
+        # Early exit from Stage 1 — no bureau pull needed
         if not stage1_result["proceed_to_stage2"]:
             total_ms = round((time.perf_counter() - pipeline_start) * 1000, 2)
-            print(f"[PIPELINE]      EARLY DECLINE (no bureau pull) — saved ~$0.50")
+            final_decision = stage1_result["decision"]
+            
+            if final_decision == "DECLINE":
+                print(f"[PIPELINE]      EARLY DECLINE (no bureau pull) — saved ~$0.50")
+                final_reason = "Pre-qualification failed (Stage 1)"
+                mock_stage2 = None
+            else:
+                print(f"[PIPELINE]      EARLY APPROVE (no bureau pull) — ultra-fast path")
+                final_reason = "Pre-qualification ultra-fast approval (Stage 1)"
+                # Safe heuristic limit for ultra-fast track without Bureau info
+                basic_limit = min(float(app.annual_income) * 0.05, 1000.0) 
+                
+                # Mock Stage 2 result for response formatter
+                mock_stage2 = {
+                    "final_score": stage1_result["stage1_score"],
+                    "probability_of_default": stage1_result["probability_of_default"],
+                    "approved_credit_limit": basic_limit,
+                    "decision": "APPROVED"
+                }
+
             return self._build_response(
                 decision_id=decision_id,
                 app=app,
-                final_decision="DECLINED",
-                final_reason="Pre-qualification failed (Stage 1)",
+                final_decision=final_decision,
+                final_reason=final_reason,
                 fraud_result=fraud_result,
                 stage1_result=stage1_result,
-                stage2_result=None,
+                stage2_result=mock_stage2,
                 timings=timings,
                 total_ms=total_ms,
             )
