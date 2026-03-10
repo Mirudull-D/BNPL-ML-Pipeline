@@ -38,7 +38,7 @@ class Stage2Model:
     # Credit limit rules (% of monthly income × plan multiplier)
     CREDIT_LIMIT_RULES = {
         "APPROVED": {"base_pct": 1.5, "max_absolute": 5000},
-        "MANUAL_REVIEW": {"base_pct": 0.75, "max_absolute": 1500},
+        "REDUCED_AMOUNT": {"base_pct": 0.75, "max_absolute": 1500},
     }
 
     def __init__(self):
@@ -183,7 +183,7 @@ class Stage2Model:
         if prob < self.APPROVE_THRESHOLD:
             return "APPROVED"
         elif prob < self.MANUAL_REVIEW_THRESHOLD:
-            return "MANUAL_REVIEW"
+            return "REDUCED_AMOUNT"
         else:
             return "DECLINED"
 

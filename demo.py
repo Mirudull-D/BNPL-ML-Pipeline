@@ -22,7 +22,7 @@ def print_result(result: dict):
     print(f"\n  Decision : {color}{dec}{reset}")
     print(f"  Score    : {result['scores'].get('final_score', result['scores'].get('stage1_score', 'N/A'))}")
     print(f"  PD       : {(result['scores'].get('probability_of_default') or 0):.1%}")
-    print(f"  Limit    : ${result['merchant_response']['credit_limit']:,.0f}")
+    print(f"  Limit    : ₹{result['merchant_response']['credit_limit']:,.0f}")
     print(f"  Latency  : {result['performance']['total_ms']}ms {'✅' if result['within_2s_sla'] else '❌'}")
 
     if result.get("adverse_action_codes"):

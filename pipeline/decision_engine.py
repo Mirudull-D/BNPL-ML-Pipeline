@@ -5,7 +5,7 @@ Runs the full 2-stage pipeline and manages latency budget.
 
 Stage 0 → Fraud Gate         (~50ms)  → BLOCK if fraudulent
 Stage 1 → Logistic Regression (~5ms)  → DECLINE instantly if high-risk
-                                         (no bureau pull = saves $0.30–0.80/call)
+                                         (no bureau pull = saves ₹30–₹80/call)
 Stage 2 → XGBoost + SHAP     (~15ms)  → Final decision with credit limit
 Total P99 target: < 2000ms (bureau API is ~500-800ms of that budget)
 """
@@ -102,6 +102,7 @@ class DecisionEngine:
         # ────────────────────────────────────────────────────────────
         t1 = time.perf_counter()
         stage1_result = self.stage1_model.predict(stage1_features)
+        print("stage 1 result", stage1_result)
         timings["stage1_ms"] = round((time.perf_counter() - t1) * 1000, 2)
 
         print(f"[STAGE 1]       pd={stage1_result['probability_of_default']:.3f}  "
@@ -114,7 +115,7 @@ class DecisionEngine:
             final_decision = stage1_result["decision"]
             
             if final_decision == "DECLINE":
-                print(f"[PIPELINE]      EARLY DECLINE (no bureau pull) — saved ~$0.50")
+                print(f"[PIPELINE]      EARLY DECLINE (no bureau pull) — saved ~₹40")
                 final_reason = "Pre-qualification failed (Stage 1)"
                 mock_stage2 = None
             else:
@@ -242,7 +243,7 @@ class DecisionEngine:
         texts = {
             "APPROVED": "Congratulations! Your purchase has been approved.",
             "DECLINED": "We're unable to approve this purchase at this time.",
-            "MANUAL_REVIEW": "Your application is under review. We'll update you shortly.",
+            "REDUCED_AMOUNT": "Your application is under review. We'll update you shortly.",
             "BLOCKED": "We're unable to process this application.",
         }
         return texts.get(decision, "Application processed.")

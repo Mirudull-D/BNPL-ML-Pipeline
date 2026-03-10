@@ -71,7 +71,7 @@ def run_kaggle_demo():
         truth = "DEFAULTED" if row['default'] == 1 else "REPAID"
         print(f"\n{'─'*60}")
         print(f"  Applicant {i+1}: ID {applicant_id}  |  Actual Kaggle Truth: {truth}")
-        print(f"  Income: ${app.annual_income:,.0f} | Age: {app.age} | Employed: {app.employment_years:.1f} yrs")
+        print(f"  Income: ₹{app.annual_income:,.0f} | Age: {app.age} | Employed: {app.employment_years:.1f} yrs")
         
         # We set simulate_bureau=False because we ALREADY loaded the real bureau
         # stats into the ApplicationData object directly from the Kaggle CSV just now.
