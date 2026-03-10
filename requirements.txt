@@ -1,0 +1,29 @@
+# BNPL Decision Engine — Dependencies
+
+# Core ML
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+shap>=0.44.0
+
+# Data
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Model persistence
+joblib>=1.3.0
+
+# API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+
+# Optional: for real bureau API integration
+# httpx>=0.25.0
+
+# Optional: Redis feature store
+# redis>=5.0.0
+
+# Optional: ONNX for faster inference
+# onnx>=1.14.0
+# onnxruntime>=1.16.0
+# onnxmltools>=1.11.0
