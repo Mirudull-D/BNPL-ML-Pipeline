@@ -163,7 +163,13 @@ class Stage2Model:
 
         decision = self._make_decision(prob_default)
         score = self._prob_to_score(prob_default)
-        credit_limit = self._calculate_credit_limit(decision, annual_income, prob_default)
+        
+        # BNPL rule: never approve more than what was requested in the cart
+        requested_amount = features.get("order_amount", 500.0) 
+        if "order_amount_log" in features: # It might be a log form depending on extraction
+             requested_amount = np.expm1(features["order_amount_log"])
+             
+        credit_limit = self._calculate_credit_limit(decision, annual_income, prob_default, requested_amount)
         shap_explanation = self._explain(X, prob_default, decision)
 
         result = {
@@ -191,10 +197,10 @@ class Stage2Model:
         score = int(850 - (prob * 550))
         return max(300, min(850, score))
 
-    def _calculate_credit_limit(self, decision: str, annual_income: float, prob: float) -> float:
+    def _calculate_credit_limit(self, decision: str, annual_income: float, prob: float, requested_amount: float) -> float:
         """
         Calculate approved credit limit based on income and risk.
-        Higher risk = lower limit, even within approved band.
+        In BNPL, we never approve them for more than exactly what is in their checkout cart!
         """
         if decision == "DECLINED":
             return 0.0
@@ -202,13 +208,16 @@ class Stage2Model:
         monthly_income = annual_income / 12
         rules = self.CREDIT_LIMIT_RULES.get(decision, {"base_pct": 0.5, "max_absolute": 500})
 
-        # Risk-adjusted limit: reduce as probability increases
+        # Risk-adjusted maximum limit the model is willing to extend
         risk_adjustment = 1.0 - (prob / self.APPROVE_THRESHOLD) * 0.3
-        raw_limit = monthly_income * rules["base_pct"] * risk_adjustment
-        limit = min(raw_limit, rules["max_absolute"])
+        max_willing_limit = monthly_income * rules["base_pct"] * risk_adjustment
+        max_willing_limit = min(max_willing_limit, rules["max_absolute"])
 
-        # Round to nearest $50
-        return round(max(50.0, limit) / 50) * 50
+        # They only get up to what they asked for in the cart
+        final_limit = min(max_willing_limit, requested_amount)
+
+        # Round up to nearest $1 to make it clean on UI
+        return round(max(1.0, final_limit))
 
     def _explain(self, X: np.ndarray, prob: float, decision: str) -> Dict:
         """Generate SHAP explanations for transparency and adverse action codes"""

@@ -113,6 +113,8 @@ class DecisionEngine:
         if not stage1_result["proceed_to_stage2"]:
             total_ms = round((time.perf_counter() - pipeline_start) * 1000, 2)
             final_decision = stage1_result["decision"]
+            if final_decision == "APPROVE":
+                final_decision = "APPROVED"
             
             if final_decision == "DECLINE":
                 print(f"[PIPELINE]      EARLY DECLINE (no bureau pull) — saved ~₹40")
@@ -122,7 +124,8 @@ class DecisionEngine:
                 print(f"[PIPELINE]      EARLY APPROVE (no bureau pull) — ultra-fast path")
                 final_reason = "Pre-qualification ultra-fast approval (Stage 1)"
                 # Safe heuristic limit for ultra-fast track without Bureau info
-                basic_limit = min(float(app.annual_income) * 0.05, 1000.0) 
+                max_fast_limit = float(app.annual_income) * 0.08
+                basic_limit = min(float(app.order_amount), max_fast_limit)
                 
                 # Mock Stage 2 result for response formatter
                 mock_stage2 = {
@@ -175,7 +178,7 @@ class DecisionEngine:
         total_ms = round((time.perf_counter() - pipeline_start) * 1000, 2)
         within_sla = total_ms < 2000
 
-        print(f"\n[TOTAL]         {total_ms}ms  ({'✅ WITHIN SLA' if within_sla else '❌ SLA BREACH'})")
+        print(f"\n[TOTAL]         {total_ms}ms  ({'[OK] WITHIN SLA' if within_sla else '[FAIL] SLA BREACH'})")
         print(f"{'='*60}")
 
         return self._build_response(
@@ -196,6 +199,7 @@ class DecisionEngine:
         response = {
             "decision_id": decision_id,
             "applicant_id": app.applicant_id,
+            "application": asdict(app),
             "final_decision": final_decision,
             "final_reason": final_reason,
             "within_2s_sla": total_ms < 2000,
@@ -254,13 +258,21 @@ class DecisionEngine:
         In production, replace with real Experian/Equifax API call.
         """
         import random
+        import time
         rng = random.Random(hash(app.applicant_id))
+        
+        # Simulate real-world network latency of fetching from a credit bureau (50ms - 120ms)
+        time.sleep(rng.uniform(0.05, 0.12))
 
         # Generate realistic bureau data correlated with income/employment
         base_score = 580 + (app.annual_income / 1000) + (app.employment_years * 5)
         base_score = max(300, min(850, base_score + rng.gauss(0, 50)))
 
-        app.credit_score = round(base_score)
+        # Do not overwrite if the React frontend explicitly sent a manual score
+        if app.credit_score is None:
+            app.credit_score = round(base_score)
+        
+        # In the demo, React does not send these 8 fields, but we dynamically generate them based on income
         app.num_open_accounts = rng.randint(2, 15)
         app.num_delinquencies_2yr = rng.choices([0, 1, 2, 3], weights=[70, 15, 10, 5])[0]
         app.credit_utilization = round(rng.uniform(0.05, 0.90), 2)
